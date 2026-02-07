@@ -1,0 +1,19 @@
+version: 2
+
+models:
+  - name: dim_rate_code
+    description: "Dimensão de códigos de tarifa consolidando os códigos únicos de rateCodeID"
+    config:
+      tags: ['dimension', 'shared', 'mart']
+    
+    columns:
+      - name: rate_code_id
+        description: "ID único do código de tarifa"
+        tests:
+          - unique
+      - name: rate_code_name
+        description: "Descrição legível do código de tarifa"
+      - name: is_airport_trip
+        description: "Flag indicando se o código de tarifa é para viagens de/para aeroportos (1) ou não (0)"
+        tests:
+          - not_null

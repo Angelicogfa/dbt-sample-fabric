@@ -1,0 +1,17 @@
+version: 2
+
+models:
+  - name: dim_location
+    description: "Dimensão de localização consolidando todas as localizações únicas de pickup e dropoff"
+    config:
+      tags: ['dimension', 'shared', 'mart']
+    
+    columns:
+      - name: location_id
+        description: "ID único da localização"
+        tests:
+          - unique
+      - name: sk_location_id
+        description: "Surrogate Key para a dimensão de localização"
+        tests:
+          - unique

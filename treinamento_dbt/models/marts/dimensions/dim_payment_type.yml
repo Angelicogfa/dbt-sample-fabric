@@ -1,0 +1,15 @@
+version: 2
+
+models:
+  - name: dim_payment_type
+    description: "Dimensão de tipos de pagamento consolidando os códigos únicos de paymentType"
+    config:
+      tags: ['dimension', 'shared', 'mart']
+    
+    columns:
+      - name: payment_type
+        description: "ID único do tipo de pagamento"
+        tests:
+          - unique
+      - name: payment_type_name
+        description: "Descrição legível do tipo de pagamento"

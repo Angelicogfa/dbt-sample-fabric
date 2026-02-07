@@ -1,0 +1,97 @@
+version: 2
+
+# =====================================================
+# SOURCES - Lakehouse Treinamento
+# =====================================================
+# Fonte de dados do Lakehouse com dados de táxi
+
+sources:
+  - name: lakehouse_treinamento
+    description: "Lakehouse contendo dados para treinamento do time"
+    database: LakehouseTreinamento
+    schema: dbo
+    
+    # Configurações de freshness - alertas se dados estiverem desatualizados
+    freshness:
+      warn_after: {count: 24, period: hour}
+      error_after: {count: 7, period: day}
+    
+    tables:
+      - name: taxi
+        loaded_at_field: lpepPickupDatetime # Campo que indica a data de carregamento dos dados
+        description: "Dados de viagens de táxi do lakehouse"
+        columns:
+          - name: vendorID
+            description: "ID do fornecedor de dados"
+            tests:
+              - not_null
+          
+          - name: lpepPickupDatetime
+            description: "Data e hora de início da viagem"
+            tests:
+              - not_null
+          
+          - name: lpepDropoffDatetime
+            description: "Data e hora de término da viagem"
+          
+          - name: passengerCount
+            description: "Número de passageiros na viagem"
+          
+          - name: tripDistance
+            description: "Distância da viagem"
+          
+          - name: puLocationId
+            description: "ID da localização de pickup"
+          
+          - name: doLocationId
+            description: "ID da localização de dropoff"
+          
+          - name: pickupLongitude
+            description: "Longitude do local de pickup"
+          
+          - name: pickupLatitude
+            description: "Latitude do local de pickup"
+          
+          - name: dropoffLongitude
+            description: "Longitude do local de dropoff"
+          
+          - name: dropoffLatitude
+            description: "Latitude do local de dropoff"
+          
+          - name: rateCodeID
+            description: "Código de tarifa"
+          
+          - name: storeAndFwdFlag
+            description: "Flag indicando se a viagem foi armazenada antes do envio"
+          
+          - name: paymentType
+            description: "Tipo de pagamento utilizado"
+          
+          - name: fareAmount
+            description: "Valor da tarifa"
+          
+          - name: extra
+            description: "Valores extras cobrados"
+          
+          - name: mtaTax
+            description: "Taxa MTA"
+          
+          - name: improvementSurcharge
+            description: "Sobretaxa de melhoria"
+          
+          - name: tipAmount
+            description: "Valor da gorjeta"
+          
+          - name: tollsAmount
+            description: "Valor de pedágios"
+          
+          - name: ehailFee
+            description: "Taxa de e-hail"
+          
+          - name: totalAmount
+            description: "Valor total da viagem"
+            tests:
+              - not_null
+          
+          - name: tripType
+            description: "Tipo de viagem"

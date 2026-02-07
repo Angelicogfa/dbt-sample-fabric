@@ -1,0 +1,45 @@
+version: 2
+
+models:
+  - name: dim_time
+    description: "Dimensão de tempo contendo todos os horários do dia (minuto a minuto) e suas dimensões temporais"
+    config:
+      tags: ['dimension', 'shared', 'mart']
+    
+    columns:
+      - name: time
+        description: "Horário no formato TIME(0) - HH:MM:SS (chave única da dimensão)"
+        tests:
+          - unique
+          - not_null
+      
+      - name: hour
+        description: "Hora do dia (0 a 23)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+      
+      - name: minute
+        description: "Minuto da hora (0 a 59)"
+        tests:
+          - not_null
+      
+      - name: time_24h
+        description: "Formatação do horário em formato 24h (ex: 08:30, 14:45)"
+        tests:
+          - not_null
+      
+      - name: period_of_day
+        description: "Período do dia baseado na hora (Madrugada: 0-5h, Manhã: 6-11h, Tarde: 12-17h, Noite: 18-23h)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['Madrugada', 'Manhã', 'Tarde', 'Noite']
+      
+      - name: is_rush_hour
+        description: "Indicador de horário de pico (1 para rush hour: 7-9h e 16-19h, 0 para demais horários)"
+        tests:
+          - not_null
+          - accepted_values:
+              values: [0, 1]

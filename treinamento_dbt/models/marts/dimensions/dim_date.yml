@@ -1,0 +1,109 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: "Dimensão de data contendo todas as datas e suas respectivas dimensões temporais"
+    config:
+      tags: ['dimension', 'shared', 'mart']
+    
+    columns:
+      - name: date
+        description: "Data no formato DATE (chave única da dimensão)"
+        tests:
+          - unique
+
+      - name: year
+        description: "Ano da data (ex: 2019)"
+        tests:
+          - not_null
+      
+      - name: month
+        description: "Mês da data (1 a 12)"
+        tests:
+          - not_null
+      
+      - name: day_of_month
+        description: "Dia do mês (1 a 31)"
+        tests:
+          - not_null
+          
+      
+      - name: month_name
+        description: "Nome completo do mês (ex: January, February)"
+        tests:
+          - accepted_values:
+              values: ['January', 'February', 'March', 'April', 'May', 'June', 
+                       'July', 'August', 'September', 'October', 'November', 'December']
+      
+      - name: month_name_abbrev
+        description: "Nome abreviado do mês (ex: Jan, Feb, Mar)"
+        tests:
+          - accepted_values:
+              values: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+          
+      
+      - name: day_of_week_name
+        description: "Nome completo do dia da semana (ex: Monday, Tuesday)"
+        tests:
+          - accepted_values:
+              values: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+      
+      - name: day_of_week_abbrev
+        description: "Nome abreviado do dia da semana (ex: Mon, Tue, Wed)"
+        tests:
+          - accepted_values:
+              values: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+      
+      - name: day_of_week_num
+        description: "Número do dia da semana (1 a 7, depende da configuração DATEFIRST)"
+        tests:
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6, 7]
+      
+      - name: is_weekend
+        description: "Indicador de final de semana (1 para sábado/domingo, 0 para dias úteis)"
+        tests:
+          - accepted_values:
+              values: [0, 1]
+      
+      - name: quarter
+        description: "Trimestre do ano (1 a 4)"
+        tests:
+          - accepted_values:
+              values: [1, 2, 3, 4]
+      
+      - name: year_quarter
+        description: "Ano e trimestre formatado (ex: 2019-Q1)"
+      
+      - name: bimester
+        description: "Bimestre do ano (1 a 6)"
+        tests:
+          - accepted_values:
+              values: [1, 2, 3, 4, 5, 6]
+      
+      - name: semester
+        description: "Semestre do ano (1 ou 2)"
+        tests:
+          - accepted_values:
+              values: [1, 2]
+      
+      - name: year_semester
+        description: "Ano e semestre formatado (ex: 2019-S1)"
+      
+      - name: fortnight
+        description: "Quinzena do mês (1 para dias 1-15, 2 para dias 16-31)"
+        tests:
+          - accepted_values:
+              values: [1, 2]
+      
+      - name: day_of_year
+        description: "Dia do ano (1 a 365/366)"
+        tests:
+          - not_null
+      
+      - name: week_of_year
+        description: "Semana do ano (1 a 53)"
+        tests:
+          - not_null
+        
