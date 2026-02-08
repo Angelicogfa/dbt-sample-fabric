@@ -889,29 +889,25 @@ Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_date.sql`:
 -- =====================================================
 -- Gera um calendário completo entre min e max das viagens
 -- com todos os atributos de data úteis para análise
---=====================================================
+-- =====================================================
 
 WITH source_data AS (
     SELECT *
     from {{ ref('stg_lakehouse__taxi') }}
     WHERE year(lpepPickupDatetime) <= 2019 OR year(lpepDropoffDatetime) <= 2019
 ),
-
 date_bounds AS (
-    -- Encontra a data mínima e máxima
     SELECT 
         MIN(CAST(lpepPickupDatetime AS DATE)) AS min_date,
         MAX(CAST(lpepPickupDatetime AS DATE)) AS max_date
     FROM source_data
 ),
-
--- Gerador de números (0 a 9)
+-- Number generator (0 to 9)
 ten_rows AS (
     SELECT 1 AS n UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL
     SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1
 ),
-
--- Gera sequência grande de dias (10 x 10 x 10 x 10 x 10 = 100.000 dias ~ 274 anos)
+-- Multiplier to generate a large sequence of days
 number_series AS (
     SELECT ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS n
     FROM ten_rows a
@@ -920,42 +916,60 @@ number_series AS (
     CROSS JOIN ten_rows d
     CROSS JOIN ten_rows e
 ),
-
--- Gera as datas brutas
+-- Intermediate CTE: Generates raw dates first
 raw_dates AS (
     SELECT 
         CAST(DATEADD(DAY, ns.n, db.min_date) AS DATE) AS date_value
     FROM date_bounds db
     CROSS JOIN number_series ns
-    WHERE DATEADD(DAY, ns.n, db.min_date) <= db.max_date
-),
-
--- Adiciona todos os atributos de data
-date_attributes AS (
-    SELECT
-        date_value AS date,
-        YEAR(date_value) AS year,
-        MONTH(date_value) AS month,
-        DAY(date_value) AS day_of_month,
-        DATENAME(MONTH, date_value) AS month_name,
-        LEFT(DATENAME(MONTH, date_value), 3) AS month_name_abbrev,
-        DATENAME(WEEKDAY, date_value) AS day_of_week_name,
-        LEFT(DATENAME(WEEKDAY, date_value), 3) AS day_of_week_abbrev,
-        DATEPART(WEEKDAY, date_value) AS day_of_week_num,
-        CASE WHEN DATEPART(WEEKDAY, date_value) IN (1, 7) THEN 1 ELSE 0 END AS is_weekend,
-        DATEPART(QUARTER, date_value) AS quarter,
-        CONCAT('Q', DATEPART(QUARTER, date_value), '-', YEAR(date_value)) AS year_quarter,
-        CEILING(MONTH(date_value) / 2.0) AS bimester,
-        CEILING(MONTH(date_value) / 6.0) AS semester,
-        CONCAT('S', CEILING(MONTH(date_value) / 6.0), '-', YEAR(date_value)) AS year_semester,
-        CEILING(DAY(date_value) / 15.0) AS fortnight,
-        DATEPART(DAYOFYEAR, date_value) AS day_of_year,
-        DATEPART(WEEK, date_value) AS week_of_year
-    FROM raw_dates
+    WHERE ns.n <= DATEDIFF(DAY, db.min_date, db.max_date)
 )
+-- FINAL SELECT: Calculates all time dimensions
+SELECT 
+    date_value AS date,
+    
+    -- Basic Information
+    YEAR(date_value) AS year,
+    MONTH(date_value) AS month,
+    DAY(date_value) AS day_of_month,
+    
+    -- Text Formatting (Depends on server language settings, e.g., 'January')
+    CAST(DATENAME(MONTH, date_value) AS VARCHAR(20)) AS month_name,
+    CAST(LEFT(DATENAME(MONTH, date_value), 3) AS VARCHAR(3)) AS month_name_abbrev,
+    CAST(DATENAME(WEEKDAY, date_value) AS VARCHAR(20)) AS day_of_week_name,
+    CAST(LEFT(DATENAME(WEEKDAY, date_value), 3) AS VARCHAR(3)) AS day_of_week_abbrev,
+    
+    -- Day of Week Number (1 to 7). Note: Depends on SET DATEFIRST
+    DATEPART(WEEKDAY, date_value) AS day_of_week_num,
+    
+    -- Weekend Indicator
+    -- Note: Ensure your session is in English or adjust 'Saturday'/'Sunday' accordingly
+    CASE 
+        WHEN DATENAME(WEEKDAY, date_value) IN ('Saturday', 'Sunday') THEN 1 
+        ELSE 0 
+    END AS is_weekend,
 
-SELECT * FROM date_attributes
-ORDER BY date
+    -- Quarter
+    DATEPART(QUARTER, date_value) AS quarter,
+    CAST(YEAR(date_value) AS VARCHAR(4)) + '-Q' + CAST(DATEPART(QUARTER, date_value) AS VARCHAR(1)) AS year_quarter, -- Ex: 2019-Q1
+
+    -- Bimester (Math: (Month-1)/2 + 1)
+    ((MONTH(date_value) - 1) / 2) + 1 AS bimester,
+    
+    -- Semester
+    CASE WHEN MONTH(date_value) <= 6 THEN 1 ELSE 2 END AS semester,
+    CAST(YEAR(date_value) AS VARCHAR(4)) + '-S' + CAST(CASE WHEN MONTH(date_value) <= 6 THEN 1 ELSE 2 END AS VARCHAR(1)) AS year_semester, -- Ex: 2019-S1
+
+    -- Fortnight (Rule: Day <= 15 is the 1st fortnight)
+    CASE WHEN DAY(date_value) <= 15 THEN 1 ELSE 2 END AS fortnight,
+    
+    -- Day of Year (1 to 365/366)
+    DATEPART(DAYOFYEAR, date_value) AS day_of_year,
+    
+    -- Week of Year (1 to 53)
+    DATEPART(WEEK, date_value) AS week_of_year
+
+FROM raw_dates
 ```
 
 ### 12.3 Modelo 2: int_dim_location (Localizações)
@@ -976,19 +990,15 @@ with sg_taxi as (
     select *
     from {{ ref('stg_lakehouse__taxi') }}
 ),
-
 location as (
-    -- União de localizações de pickup
-    select distinct puLocationId as location_id
+    select
+        distinct puLocationId as location_id
     from sg_taxi
-    
-    UNION
-    
-    -- União de localizações de dropoff
-    select distinct doLocationId as location_id
+    union
+    select
+        distinct doLocationId as location_id
     from sg_taxi
 ),
-
 dim_location as (
     select
         distinct location_id,
@@ -998,7 +1008,6 @@ dim_location as (
         ) AS sk_location_id
     from location
 )
-
 select *
 from dim_location
 ```
@@ -1017,13 +1026,12 @@ Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_vendor.sql`:
 -- =====================================================
 
 WITH vendor_data AS (
-    -- Busca os IDs únicos da camada de staging
+    -- Buscamos os IDs únicos da camada de staging
     SELECT DISTINCT 
         CAST("vendorID" AS INT) AS vendor_id
     from {{ ref('stg_lakehouse__taxi') }}
     WHERE "vendorID" IS NOT NULL
 )
-
 SELECT
     vendor_id,
     CASE vendor_id
@@ -1080,12 +1088,11 @@ Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_rate_code.sql`:
 -- Mapeia códigos de tarifa para descrições legíveis
 -- =====================================================
 
-WITH data AS (
-    SELECT DISTINCT rateCodeId as rate_code_id
-    FROM {{ ref('stg_lakehouse__taxi') }}
-    WHERE rateCodeId IS NOT NULL
+WITH unique_codes AS (
+    SELECT DISTINCT rateCodeID as rate_code_id    
+    from {{ ref('stg_lakehouse__taxi') }}
+    WHERE rateCodeID IS NOT NULL
 )
-
 SELECT
     rate_code_id,
     CASE rate_code_id
@@ -1095,9 +1102,14 @@ SELECT
         WHEN 4 THEN 'Nassau or Westchester'
         WHEN 5 THEN 'Negotiated fare'
         WHEN 6 THEN 'Group ride'
-        ELSE 'Unknown'
-    END AS rate_code_name
-FROM data
+        WHEN 99 THEN 'Special/Unknown'
+        ELSE 'Not Specified'
+    END AS rate_code_name,
+    CASE 
+        WHEN rate_code_id IN (2, 3) THEN 1 
+        ELSE 0 
+    END AS is_airport_trip
+FROM unique_codes
 ```
 
 ### 12.7 Modelo 6: int_dim_time (Horários do Dia)
@@ -1112,47 +1124,43 @@ Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_time.sql`:
 -- com atributos úteis para análise temporal
 -- =====================================================
 
-WITH hour_series AS (
-    -- Gera números de 0 a 23 (horas)
-    SELECT TOP 24 ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS hour_num
-    FROM sys.objects
+WITH ten_rows AS (
+    SELECT 1 AS n UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL
+    SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1
 ),
-
+-- Gerar 1440 números (0 a 1439 minutos em um dia)
 minute_series AS (
-    -- Gera números de 0 a 59 (minutos)
-    SELECT TOP 60 ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS minute_num
-    FROM sys.objects
+    SELECT TOP (1440) ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS minute_offset
+    FROM ten_rows a CROSS JOIN ten_rows b CROSS JOIN ten_rows c CROSS JOIN ten_rows d
 ),
-
-time_combinations AS (
-    SELECT
-        h.hour_num,
-        m.minute_num,
-        CAST(FORMAT(h.hour_num, '00') + ':' + FORMAT(m.minute_num, '00') + ':00' AS TIME) AS time_value
-    FROM hour_series h
-    CROSS JOIN minute_series m
-),
-
-time_attributes AS (
-    SELECT
-        time_value,
-        hour_num AS hour,
-        minute_num AS minute,
-        CASE 
-            WHEN hour_num BETWEEN 0 AND 5 THEN 'Madrugada'
-            WHEN hour_num BETWEEN 6 AND 11 THEN 'Manhã'
-            WHEN hour_num BETWEEN 12 AND 17 THEN 'Tarde'
-            ELSE 'Noite'
-        END AS period_of_day,
-        CASE 
-            WHEN hour_num BETWEEN 7 AND 9 OR hour_num BETWEEN 17 AND 19 THEN 1
-            ELSE 0
-        END AS is_rush_hour
-    FROM time_combinations
+raw_time AS (
+    SELECT 
+        DATEADD(MINUTE, minute_offset, CAST('00:00:00' AS TIME)) AS time_value
+    FROM minute_series
 )
+SELECT 
+    CAST(time_value AS TIME(0)) AS time, -- Chave Primária (precisão 0 = sem frações de segundo)
+    DATEPART(HOUR, time_value) AS hour,
+    DATEPART(MINUTE, time_value) AS minute,
+    
+    -- Formatação amigável
+    CAST(FORMAT(CAST(time_value AS DATETIME), 'HH:mm') AS VARCHAR(5)) AS time_24h,
+    
+    -- Períodos do Dia (Essencial para análise de mobilidade)
+    CASE 
+        WHEN DATEPART(HOUR, time_value) BETWEEN 0 AND 5 THEN 'Madrugada'
+        WHEN DATEPART(HOUR, time_value) BETWEEN 6 AND 11 THEN 'Manhã'
+        WHEN DATEPART(HOUR, time_value) BETWEEN 12 AND 17 THEN 'Tarde'
+        ELSE 'Noite'
+    END AS period_of_day,
 
-SELECT * FROM time_attributes
-ORDER BY time_value
+    -- Flags de Horário de Pico (Rush Hour - Adaptar conforme regra de NY)
+    CASE 
+        WHEN (DATEPART(HOUR, time_value) BETWEEN 7 AND 9) OR (DATEPART(HOUR, time_value) BETWEEN 16 AND 19) 
+        THEN 1 ELSE 0 
+    END AS is_rush_hour
+
+FROM raw_time
 ```
 
 ### 12.8 Executar Todos os Modelos Intermediate
@@ -1261,22 +1269,22 @@ ORDER BY rate_code_id;
 ```sql
 -- Ver primeiros horários do dia
 SELECT TOP 20
-    time_value,
+    time,
     hour,
     minute,
     period_of_day,
     is_rush_hour
 FROM dbo_intermediate.int_dim_time
-ORDER BY time_value;
+ORDER BY time;
 
 -- Horários de pico (rush hour)
 SELECT 
-    time_value,
+    time,
     hour,
     period_of_day
 FROM dbo_intermediate.int_dim_time
 WHERE is_rush_hour = 1
-ORDER BY time_value;
+ORDER BY time;
 
 -- Estatísticas por período do dia
 SELECT 
@@ -1615,13 +1623,13 @@ WITH data AS (
 )
 
 SELECT 
-    time_value,
+    time,
     hour,
     minute,
     period_of_day,
     is_rush_hour
 FROM data
-ORDER BY time_value
+ORDER BY time
 ```
 
 Crie `treinamento_dbt/models/marts/dimensions/dim_time.yml`:
@@ -1633,7 +1641,7 @@ models:
   - name: dim_time
     description: "Dimensão de tempo (horários do dia)"
     columns:
-      - name: time_value
+      - name: time
         description: "Hora e minuto (HH:MM:SS) - chave primária"
         tests:
           - unique
@@ -1773,13 +1781,13 @@ ORDER BY rate_code_id;
 ```sql
 -- Ver primeiros e últimos horários
 SELECT TOP 10
-    time_value,
+    time,
     hour,
     minute,
     period_of_day,
     is_rush_hour
 FROM dbo_marts.dim_time
-ORDER BY time_value;
+ORDER BY time;
 
 -- Análise de horários de pico por período do dia
 SELECT 
@@ -1813,7 +1821,7 @@ FROM dbo_marts.dim_date d
 CROSS JOIN dbo_marts.dim_vendor v
 CROSS JOIN dbo_marts.dim_payment_type p
 CROSS JOIN dbo_marts.dim_rate_code r
-WHERE d.year = 2019 AND d.month = 12  -- Filtro para reduzir resultados
+WHERE d.year = 2013 AND d.month = 12  -- Filtro para reduzir resultados
 ORDER BY d.date DESC, v.vendor_name, p.payment_type_name;
 
 -- Análise de dias úteis vs finais de semana
@@ -1860,12 +1868,12 @@ ORDER BY total_registros DESC;
 
 ```sql
 -- Validar dimensões criadas no schema marts
-SELECT COUNT(*) FROM dbo_marts.dim_date;          -- ~1.500 registros
-SELECT COUNT(*) FROM dbo_marts.dim_location;      -- ~260 registros
-SELECT COUNT(*) FROM dbo_marts.dim_vendor;        -- 2 registros
-SELECT COUNT(*) FROM dbo_marts.dim_payment_type;  -- ~5 registros
-SELECT COUNT(*) FROM dbo_marts.dim_rate_code;     -- ~6 registros
-SELECT COUNT(*) FROM dbo_marts.dim_time;          -- 1.440 registros
+SELECT COUNT(*) FROM dbt_marts.dim_date;          -- ~3.891 registros
+SELECT COUNT(*) FROM dbt_marts.dim_location;      -- ~264 registros
+SELECT COUNT(*) FROM dbt_marts.dim_vendor;        -- 2 registros
+SELECT COUNT(*) FROM dbt_marts.dim_payment_type;  -- ~5 registros
+SELECT COUNT(*) FROM dbt_marts.dim_rate_code;     -- ~7 registros
+SELECT COUNT(*) FROM dbt_marts.dim_time;          -- 1.440 registros
 
 -- Testar consulta analítica
 SELECT TOP 10 
