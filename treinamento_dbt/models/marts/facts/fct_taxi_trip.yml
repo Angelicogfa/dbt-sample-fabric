@@ -1,0 +1,137 @@
+version: 2
+
+models:
+  - name: fct_taxi_trip
+    description: "Tabela fato contendo todas as viagens de táxi com referências para dimensões conformed"
+    config:
+      tags: ['fact', 'mart']
+    
+    columns:
+      # Chave Primária
+      - name: trip_id
+        description: "Chave primária única da viagem (surrogate key da staging)"
+        tests:
+          - unique
+          - not_null
+      
+      # Foreign Keys - Data
+      - name: pickup_date_fk
+        description: "Foreign key para dim_date - data de coleta do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      
+      - name: dropoff_date_fk
+        description: "Foreign key para dim_date - data de entrega do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      
+      # Foreign Keys - Tempo
+      - name: pickup_time_fk
+        description: "Foreign key para dim_time - horário de coleta do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time
+      
+      - name: dropoff_time_fk
+        description: "Foreign key para dim_time - horário de entrega do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time
+      
+      # Foreign Keys - Localização (USANDO SURROGATE KEY sk_location_id)
+      - name: pickup_location_fk
+        description: "Foreign key para dim_location - sk_location_id da localização de coleta (substituindo location_id original)"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: sk_location_id
+      
+      - name: dropoff_location_fk
+        description: "Foreign key para dim_location - sk_location_id da localização de entrega (substituindo location_id original)"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: sk_location_id
+      
+      # Foreign Keys - Outras Dimensões
+      - name: vendor_fk
+        description: "Foreign key para dim_vendor - fornecedor do serviço"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_vendor')
+              field: vendor_id
+      
+      - name: payment_type_fk
+        description: "Foreign key para dim_payment_type - tipo de pagamento"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_payment_type')
+              field: payment_type
+      
+      - name: rate_code_fk
+        description: "Foreign key para dim_rate_code - código de tarifa"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_rate_code')
+              field: rate_code_id
+      
+      # Métricas/Medidas
+      - name: fareAmount
+        description: "Valor base da tarifa calculado pelo taxímetro"
+        tests:
+          - not_null
+      
+      - name: extra
+        description: "Cobranças extras (ex: hora do rush, overnight)"
+      
+      - name: mtaTax
+        description: "Taxa MTA (Metropolitan Transportation Authority)"
+      
+      - name: improvementSurcharge
+        description: "Taxa de melhoria de $0.30 cobrada desde 2015"
+      
+      - name: tipAmount
+        description: "Valor da gorjeta (apenas cartão de crédito)"
+      
+      - name: tollsAmount
+        description: "Valor total de pedágios pagos durante a viagem"
+      
+      - name: totalAmount
+        description: "Valor total cobrado ao passageiro (soma de todos os valores)"
+        tests:
+          - not_null
+      
+      - name: tripDistance
+        description: "Distância da viagem em milhas reportada pelo taxímetro"
+        tests:
+          - not_null
+      
+      - name: trip_duration_minutes
+        description: "Duração da viagem calculada em minutos (dropoff - pickup)"
+        tests:
+          - not_null
+      
+      # Atributos Descritivos (Degenerates)
+      - name: passengerCount
+        description: "Número de passageiros na viagem (informado pelo motorista)"
+      
+      - name: tripType
+        description: "Código indicando se a viagem foi street-hail ou dispatch"
+      
+      - name: storeAndFwdFlag
+        description: "Flag indicando se o registro foi armazenado antes de ser enviado (Y/N)"

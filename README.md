@@ -112,7 +112,6 @@ treinamento-dbt/
 ├── requirements.txt         # Dependências Python
 ├── run_dbt.ps1             # Script PowerShell para executar DBT
 ├── run_dbt.sh              # Script Bash para executar DBT
-├── PERFIS_DBT.md           # Documentação dos perfis
 └── treinamento_dbt/        # Pasta do projeto DBT
     ├── dbt_project.yml     # Configuração do projeto
     ├── profiles.yml        # Configuração de conexões
@@ -668,13 +667,6 @@ Verifique se o dbt consegue ler a source:
 Crie o arquivo `treinamento_dbt/models/staging/lakehouse/stg_lakehouse__taxi.sql`:
 
 ```sql
--- =====================================================
--- Staging: Dados de Táxi do Lakehouse
--- =====================================================
--- Descrição: Ingestão e limpeza básica dos dados de viagens de táxi
--- Materialização: VIEW
--- Dependências: source('lakehouse_treinamento', 'taxi')
--- =====================================================
 
 with source as (
     -- Lê os dados da source documentada
@@ -884,13 +876,6 @@ mkdir -p treinamento_dbt/models/intermediate/lakehouse
 Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_date.sql`:
 
 ```sql
--- =====================================================
--- Intermediate: Dimensão de Data
--- =====================================================
--- Gera um calendário completo entre min e max das viagens
--- com todos os atributos de data úteis para análise
--- =====================================================
-
 WITH source_data AS (
     SELECT *
     from {{ ref('stg_lakehouse__taxi') }}
@@ -979,13 +964,6 @@ FROM raw_dates
 Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_location.sql`:
 
 ```sql
--- =====================================================
--- Intermediate: Dimensão de Localização
--- =====================================================
--- Extrai IDs únicos de localização (pickup e dropoff)
--- e cria surrogate key para cada localização
--- =====================================================
-
 with sg_taxi as (
     select *
     from {{ ref('stg_lakehouse__taxi') }}
@@ -1019,12 +997,6 @@ from dim_location
 Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_vendor.sql`:
 
 ```sql
--- =====================================================
--- Intermediate: Dimensão de Fornecedor
--- =====================================================
--- Lista de fornecedores de dados com nomes descritivos
--- =====================================================
-
 WITH vendor_data AS (
     -- Buscamos os IDs únicos da camada de staging
     SELECT DISTINCT 
@@ -1052,12 +1024,6 @@ FROM vendor_data
 Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_payment_type.sql`:
 
 ```sql
--- =====================================================
--- Intermediate: Dimensão de Tipo de Pagamento
--- =====================================================
--- Mapeia códigos de pagamento para descrições legíveis
--- =====================================================
-
 WITH data AS (
     SELECT DISTINCT paymentType as payment_type
     FROM {{ ref('stg_lakehouse__taxi') }}
@@ -1082,12 +1048,6 @@ FROM data
 Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_rate_code.sql`:
 
 ```sql
--- =====================================================
--- Intermediate: Dimensão de Rate Code
--- =====================================================
--- Mapeia códigos de tarifa para descrições legíveis
--- =====================================================
-
 WITH unique_codes AS (
     SELECT DISTINCT rateCodeID as rate_code_id    
     from {{ ref('stg_lakehouse__taxi') }}
@@ -1117,13 +1077,6 @@ FROM unique_codes
 Crie `treinamento_dbt/models/intermediate/lakehouse/int_dim_time.sql`:
 
 ```sql
--- =====================================================
--- Intermediate: Dimensão de Tempo (Horário do Dia)
--- =====================================================
--- Gera todos os horários do dia (00:00 a 23:59)
--- com atributos úteis para análise temporal
--- =====================================================
-
 WITH ten_rows AS (
     SELECT 1 AS n UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL
     SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1 UNION ALL SELECT 1
@@ -1326,23 +1279,236 @@ ORDER BY total_registros DESC;
 ```
 
 💡 **Resultados Esperados:**
-- **int_dim_date**: ~1.500 datas (do mínimo ao máximo das viagens)
-- **int_dim_location**: ~260 localizações únicas
+- **int_dim_date**: ~3.891 datas (do mínimo ao máximo das viagens)
+- **int_dim_location**: ~264 localizações únicas
 - **int_dim_vendor**: 2 vendors (CMT e VTS)
 - **int_dim_payment_type**: ~5 tipos de pagamento
-- **int_dim_rate_code**: ~6 códigos de tarifa
+- **int_dim_rate_code**: ~7 códigos de tarifa
 - **int_dim_time**: 1.440 registros (24h × 60min)
 
 ### 12.10 Validar no Fabric
 ```sql
 -- Verificar quantidade de registros em cada view
-SELECT COUNT(*) FROM dbo_intermediate.int_dim_date;        -- ~1.500 datas
-SELECT COUNT(*) FROM dbo_intermediate.int_dim_location;    -- ~260 localizações
+SELECT COUNT(*) FROM dbo_intermediate.int_dim_date;        -- ~3.891 datas
+SELECT COUNT(*) FROM dbo_intermediate.int_dim_location;    -- ~264 localizações
 SELECT COUNT(*) FROM dbo_intermediate.int_dim_vendor;      -- 2 vendors
 SELECT COUNT(*) FROM dbo_intermediate.int_dim_payment_type; -- ~5 tipos
-SELECT COUNT(*) FROM dbo_intermediate.int_dim_rate_code;   -- ~6 códigos
+SELECT COUNT(*) FROM dbo_intermediate.int_dim_rate_code;   -- ~7 códigos
 SELECT COUNT(*) FROM dbo_intermediate.int_dim_time;        -- 1.440 minutos (24h x 60min)
 ```
+
+### 12.11 Criar Tabela Fato - int_fct_taxi_trip
+
+Agora vamos criar a **tabela fato intermediária** que faz os JOINs entre a staging e todas as dimensões, aplicando as **surrogate keys** corretas.
+
+**🔍 Conceitos importantes:**
+
+1. **Surrogate Keys**: Usamos `sk_location_id` (hash BINARY) para location ao invés da natural key
+2. **Separação Date/Time**: Criamos 4 FKs separadas (pickup_date, pickup_time, dropoff_date, dropoff_time) para análise granular
+3. **Truncamento de Tempo**: Truncamos segundos usando `DATEADD(MINUTE, DATEDIFF(MINUTE, 0, datetime), 0)` para garantir correlação com dim_time (que tem granularidade de minutos)
+4. **Filtros de Qualidade**: Removemos registros sem data/hora válida ou sem dimensões obrigatórias
+
+**📄 Arquivo:** `treinamento_dbt/models/intermediate/lakehouse/int_fct_taxi_trip.sql`
+
+```sql
+
+WITH stg_taxi AS (
+    SELECT *
+    FROM {{ ref('stg_lakehouse__taxi') }}
+    WHERE lpepPickupDatetime IS NOT NULL
+      AND lpepDropoffDatetime IS NOT NULL
+      AND lpepDropoffDatetime > lpepPickupDatetime
+),
+
+-- Dimensões intermediate para JOINs
+int_location AS (
+    SELECT *
+    FROM {{ ref('int_dim_location') }}
+),
+
+int_vendor AS (
+    SELECT *
+    FROM {{ ref('int_dim_vendor') }}
+),
+
+int_payment_type AS (
+    SELECT *
+    FROM {{ ref('int_dim_payment_type') }}
+),
+
+int_rate_code AS (
+    SELECT *
+    FROM {{ ref('int_dim_rate_code') }}
+),
+
+-- JOINs com as dimensões aplicando surrogate keys
+fact_base AS (
+    SELECT
+        -- Chave Primária da Fato (Surrogate Key da Staging)
+        taxi.sk_id AS trip_id,
+        
+        -- Foreign Keys para Dimensões
+        
+        -- Dimensão de Data (Pickup e Dropoff) - usa DATE diretamente
+        CAST(taxi.lpepPickupDatetime AS DATE) AS pickup_date_fk,
+        CAST(taxi.lpepDropoffDatetime AS DATE) AS dropoff_date_fk,
+        
+        -- Dimensão de Tempo (Pickup e Dropoff) - TRUNCA para minutos inteiros
+        CAST(
+            DATEADD(
+                MINUTE,
+                DATEDIFF(MINUTE, 0, taxi.lpepPickupDatetime),
+                0
+            ) AS TIME(0)
+        ) AS pickup_time_fk,
+        CAST(
+            DATEADD(
+                MINUTE,
+                DATEDIFF(MINUTE, 0, taxi.lpepDropoffDatetime),
+                0
+            ) AS TIME(0)
+        ) AS dropoff_time_fk,
+        
+        -- Dimensão de Localização (Pickup e Dropoff) - USA SURROGATE KEY
+        loc_pickup.sk_location_id AS pickup_location_fk,
+        loc_dropoff.sk_location_id AS dropoff_location_fk,
+        
+        -- Dimensão de Fornecedor - usa natural key
+        vendor.vendor_id AS vendor_fk,
+        
+        -- Dimensão de Tipo de Pagamento - usa natural key
+        payment.payment_type AS payment_type_fk,
+        
+        -- Dimensão de Rate Code - usa natural key
+        rate.rate_code_id AS rate_code_fk,
+        
+        -- Métricas da Viagem (Fatos/Medidas)
+        taxi.fareAmount,
+        taxi.extra,
+        taxi.mtaTax,
+        taxi.improvementSurcharge,
+        taxi.tipAmount,
+        taxi.tollsAmount,
+        taxi.totalAmount,
+        taxi.tripDistance,
+        
+        -- Atributos Descritivos (Degenerates)
+        taxi.passengerCount,
+        taxi.tripType,
+        taxi.storeAndFwdFlag,
+        
+        -- Cálculo de duração da viagem em minutos
+        DATEDIFF(MINUTE, taxi.lpepPickupDatetime, taxi.lpepDropoffDatetime) AS trip_duration_minutes
+        
+    FROM stg_taxi taxi
+    
+    -- JOIN com Localização Pickup (usando surrogate key)
+    LEFT JOIN int_location loc_pickup
+        ON taxi.puLocationId = loc_pickup.location_id
+    
+    -- JOIN com Localização Dropoff (usando surrogate key)
+    LEFT JOIN int_location loc_dropoff
+        ON taxi.doLocationId = loc_dropoff.location_id
+    
+    -- JOIN com Vendor
+    LEFT JOIN int_vendor vendor
+        ON CAST(taxi."vendorID" AS INT) = vendor.vendor_id
+    
+    -- JOIN com Payment Type
+    LEFT JOIN int_payment_type payment
+        ON taxi.paymentType = payment.payment_type
+    
+    -- JOIN com Rate Code
+    LEFT JOIN int_rate_code rate
+        ON taxi.rateCodeID = rate.rate_code_id
+)
+
+SELECT
+    -- Chave Primária
+    trip_id,
+    
+    -- Foreign Keys
+    pickup_date_fk,
+    dropoff_date_fk,
+    pickup_time_fk,
+    dropoff_time_fk,
+    pickup_location_fk,
+    dropoff_location_fk,
+    vendor_fk,
+    payment_type_fk,
+    rate_code_fk,
+    
+    -- Métricas
+    fareAmount,
+    extra,
+    mtaTax,
+    improvementSurcharge,
+    tipAmount,
+    tollsAmount,
+    totalAmount,
+    tripDistance,
+    trip_duration_minutes,
+    
+    -- Atributos Descritivos
+    passengerCount,
+    tripType,
+    storeAndFwdFlag
+    
+FROM fact_base
+WHERE 
+    -- Garantir que conseguimos fazer JOIN com as dimensões principais
+    pickup_location_fk IS NOT NULL 
+    AND dropoff_location_fk IS NOT NULL
+    AND vendor_fk IS NOT NULL
+```
+
+**🎯 Executar no dbt:**
+```powershell
+.\run_dbt.ps1 "run --select int_fct_taxi_trip"
+```
+
+**🔍 Validar no Fabric:**
+```sql
+-- Verificar quantidade de registros na fato intermediate
+SELECT COUNT(*) FROM dbo_intermediate.int_fct_taxi_trip;  -- ~26M+ registros
+
+-- Validar JOINs com dimensões (amostra)
+SELECT TOP 100
+    f.trip_id,
+    f.pickup_date_fk,
+    f.pickup_time_fk,
+    f.pickup_location_fk,
+    f.vendor_fk,
+    f.totalAmount,
+    f.tripDistance,
+    f.trip_duration_minutes
+FROM dbo_intermediate.int_fct_taxi_trip f
+ORDER BY f.lpepPickupDatetime DESC;
+
+-- Validar correlação com dim_time (deve encontrar match)
+SELECT TOP 10
+    f.pickup_time_fk,
+    t.time,
+    t.time_24h,
+    t.period_of_day
+FROM dbo_intermediate.int_fct_taxi_trip f
+INNER JOIN dbo_marts.dim_time t ON f.pickup_time_fk = t.time
+ORDER BY f.lpepPickupDatetime DESC;
+
+-- Validar correlação com dim_location usando surrogate key
+SELECT TOP 10
+    f.pickup_location_fk,
+    l.sk_location_id,
+    l.location_id
+FROM dbo_intermediate.int_fct_taxi_trip f
+INNER JOIN dbo_marts.dim_location l ON f.pickup_location_fk = l.sk_location_id
+WHERE f.pickup_location_fk IS NOT NULL;
+```
+
+💡 **Ponto de Atenção:**
+- O truncamento de tempo com `DATEADD(MINUTE, DATEDIFF(MINUTE, 0, datetime), 0)` é **essencial** para garantir que o JOIN com dim_time funcione corretamente
+- dim_time tem granularidade de **minutos** (1.440 registros), sem segundos
+- Se não truncar, TIME(0) mantém os segundos (ex: 14:35:42) e não encontra match com dim_time (14:35:00)
 
 ✅ **Checkpoint:** Camada Intermediate criada! Agora temos componentes reutilizáveis prontos e validados com dados reais.
 
@@ -1584,7 +1750,8 @@ WITH data AS (
 
 SELECT 
     rate_code_id,
-    rate_code_name
+    rate_code_name,
+    is_airport_trip
 FROM data
 ORDER BY rate_code_id
 ```
@@ -1606,6 +1773,9 @@ models:
       
       - name: rate_code_name
         description: "Descrição do código de tarifa"
+      
+      - name: is_airport_trip
+        description: "Indicador de viagem de/para aeroporto (1=JFK/Newark, 0=Outros)"
 ```
 
 ### 13.7 Dimensão 6: dim_time
@@ -1626,6 +1796,7 @@ SELECT
     time,
     hour,
     minute,
+    time_24h,
     period_of_day,
     is_rush_hour
 FROM data
@@ -1652,6 +1823,9 @@ models:
       
       - name: minute
         description: "Minuto (0-59)"
+      
+      - name: time_24h
+        description: "Horário formatado no padrão 24h (HH:mm) para visualizações"
       
       - name: period_of_day
         description: "Período do dia (Madrugada, Manhã, Tarde, Noite)"
@@ -1886,7 +2060,388 @@ CROSS JOIN dbo_marts.dim_vendor v
 ORDER BY d.date DESC;
 ```
 
-✅ **Checkpoint:** Data Warehouse dimensional criado! Todas as 6 dimensões estão prontas, validadas e com dados exploráveis.
+---
+
+## 🎯 13 bis. CONSTRUINDO: Camada Marts - Facts (Gold)
+
+Agora vamos criar a **tabela fato final** do Data Warehouse. Esta será uma **tabela materializada** que referencia a camada intermediate.
+
+### 13.12 Criar Tabela Fato - fct_taxi_trip
+
+A tabela fato final simplesmente materializa a view intermediate como uma **TABLE** para melhor performance em queries analíticas.
+
+**📄 Arquivo:** `treinamento_dbt/models/marts/facts/fct_taxi_trip.sql`
+
+```sql
+-- =====================================================
+-- Fato: Viagens de Táxi (Taxi Trip) - MART FINAL
+-- =====================================================
+-- Tabela fato final materializada que referencia a camada
+-- intermediate com todos os relacionamentos já aplicados
+-- =====================================================
+
+{{
+    config(
+        materialized='table',
+        tags=['fact', 'mart']
+    )
+}}
+
+WITH int_fact AS (
+    SELECT *
+    FROM {{ ref('int_fct_taxi_trip') }}
+)
+
+SELECT
+    -- Chave Primária
+    trip_id,
+    
+    -- Foreign Keys para Dimensões
+    pickup_date_fk,
+    dropoff_date_fk,
+    pickup_time_fk,
+    dropoff_time_fk,
+    pickup_location_fk,      -- sk_location_id (surrogate key)
+    dropoff_location_fk,     -- sk_location_id (surrogate key)
+    vendor_fk,
+    payment_type_fk,
+    rate_code_fk,
+    
+    -- Métricas/Medidas
+    fareAmount,
+    extra,
+    mtaTax,
+    improvementSurcharge,
+    tipAmount,
+    tollsAmount,
+    totalAmount,
+    tripDistance,
+    trip_duration_minutes,
+    
+    -- Atributos Descritivos (Degenerates)
+    passengerCount,
+    tripType,
+    storeAndFwdFlag,
+    
+    -- Timestamps Originais
+    lpepPickupDatetime,
+    lpepDropoffDatetime
+    
+FROM int_fact
+ORDER BY lpepPickupDatetime
+```
+
+### 13.13 Documentar Tabela Fato - fct_taxi_trip.yml
+
+**📄 Arquivo:** `treinamento_dbt/models/marts/facts/fct_taxi_trip.yml`
+
+```yaml
+version: 2
+
+models:
+  - name: fct_taxi_trip
+    description: "Tabela fato contendo todas as viagens de táxi com referências para dimensões conformed"
+    config:
+      tags: ['fact', 'mart']
+    
+    columns:
+      # Chave Primária
+      - name: trip_id
+        description: "Chave primária única da viagem (surrogate key da staging)"
+        tests:
+          - unique
+          - not_null
+      
+      # Foreign Keys - Data
+      - name: pickup_date_fk
+        description: "Foreign key para dim_date - data de coleta do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      
+      - name: dropoff_date_fk
+        description: "Foreign key para dim_date - data de entrega do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_date')
+              field: date
+      
+      # Foreign Keys - Tempo
+      - name: pickup_time_fk
+        description: "Foreign key para dim_time - horário de coleta do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time
+      
+      - name: dropoff_time_fk
+        description: "Foreign key para dim_time - horário de entrega do passageiro"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_time')
+              field: time
+      
+      # Foreign Keys - Localização (USANDO SURROGATE KEY sk_location_id)
+      - name: pickup_location_fk
+        description: "Foreign key para dim_location - sk_location_id da localização de coleta"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: sk_location_id
+      
+      - name: dropoff_location_fk
+        description: "Foreign key para dim_location - sk_location_id da localização de entrega"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_location')
+              field: sk_location_id
+      
+      # Foreign Keys - Outras Dimensões
+      - name: vendor_fk
+        description: "Foreign key para dim_vendor - fornecedor do serviço"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_vendor')
+              field: vendor_id
+      
+      - name: payment_type_fk
+        description: "Foreign key para dim_payment_type - tipo de pagamento"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_payment_type')
+              field: payment_type
+      
+      - name: rate_code_fk
+        description: "Foreign key para dim_rate_code - código de tarifa"
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_rate_code')
+              field: rate_code_id
+      
+      # Métricas/Medidas
+      - name: fareAmount
+        description: "Valor base da tarifa calculado pelo taxímetro"
+        tests:
+          - not_null
+      
+      - name: totalAmount
+        description: "Valor total cobrado ao passageiro (soma de todos os valores)"
+        tests:
+          - not_null
+      
+      - name: tripDistance
+        description: "Distância da viagem em milhas reportada pelo taxímetro"
+        tests:
+          - not_null
+      
+      - name: trip_duration_minutes
+        description: "Duração da viagem calculada em minutos (dropoff - pickup)"
+        tests:
+          - not_null
+      
+      # Timestamps Originais
+      - name: lpepPickupDatetime
+        description: "Data e hora exata em que o taxímetro foi acionado"
+        tests:
+          - not_null
+      
+      - name: lpepDropoffDatetime
+        description: "Data e hora exata em que o taxímetro foi desligado"
+        tests:
+          - not_null
+```
+
+### 13.14 Executar e Testar a Tabela Fato
+
+**🎯 Build completo (dimensões + fato):**
+```powershell
+.\run_dbt.ps1 "build"
+```
+
+**🎯 Executar apenas a fato:**
+```powershell
+.\run_dbt.ps1 "run --select fct_taxi_trip"
+```
+
+**🧪 Testar integridade referencial:**
+```powershell
+.\run_dbt.ps1 "test --select fct_taxi_trip"
+```
+
+### 13.15 Validação e Análises da Tabela Fato
+
+**🔍 Consulta 1: Volume de Dados**
+```sql
+-- Verificar quantidade de viagens
+SELECT COUNT(*) as total_viagens
+FROM dbo_marts.fct_taxi_trip;
+-- Esperado: ~26M+ viagens
+
+-- Distribuição por vendor
+SELECT 
+    v.vendor_name,
+    COUNT(*) as total_viagens,
+    ROUND(AVG(f.totalAmount), 2) as receita_media,
+    ROUND(AVG(f.tripDistance), 2) as distancia_media
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_vendor v ON f.vendor_fk = v.vendor_id
+GROUP BY v.vendor_name;
+```
+
+**🔍 Consulta 2: Análise Temporal**
+```sql
+-- Viagens por período do dia
+SELECT 
+    t.period_of_day,
+    COUNT(*) as total_viagens,
+    ROUND(AVG(f.totalAmount), 2) as receita_media
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_time t ON f.pickup_time_fk = t.time
+GROUP BY t.period_of_day
+ORDER BY 
+    CASE t.period_of_day
+        WHEN 'Madrugada' THEN 1
+        WHEN 'Manhã' THEN 2
+        WHEN 'Tarde' THEN 3
+        WHEN 'Noite' THEN 4
+    END;
+
+-- Viagens por dia da semana
+SELECT 
+    d.day_of_week_name,
+    d.is_weekend,
+    COUNT(*) as total_viagens,
+    ROUND(AVG(f.totalAmount), 2) as receita_media
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_date d ON f.pickup_date_fk = d.date
+GROUP BY d.day_of_week_name, d.is_weekend, d.day_of_week
+ORDER BY d.day_of_week;
+```
+
+**🔍 Consulta 3: Análise Geográfica**
+```sql
+-- Top 10 localizações de origem com mais viagens
+SELECT TOP 10
+    l.location_id,
+    COUNT(*) as total_viagens,
+    ROUND(AVG(f.totalAmount), 2) as receita_media,
+    ROUND(AVG(f.tripDistance), 2) as distancia_media
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_location l ON f.pickup_location_fk = l.sk_location_id
+GROUP BY l.location_id
+ORDER BY total_viagens DESC;
+
+-- Análise de rotas mais comuns (origem → destino)
+SELECT TOP 20
+    l_pickup.location_id as location_origem,
+    l_dropoff.location_id as location_destino,
+    COUNT(*) as total_viagens,
+    ROUND(AVG(f.totalAmount), 2) as receita_media
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_location l_pickup ON f.pickup_location_fk = l_pickup.sk_location_id
+INNER JOIN dbo_marts.dim_location l_dropoff ON f.dropoff_location_fk = l_dropoff.sk_location_id
+GROUP BY l_pickup.location_id, l_dropoff.location_id
+ORDER BY total_viagens DESC;
+```
+
+**🔍 Consulta 4: Análise de Pagamento e Tarifas**
+```sql
+-- Distribuição por tipo de pagamento
+SELECT 
+    p.payment_type_name,
+    COUNT(*) as total_viagens,
+    ROUND(AVG(f.totalAmount), 2) as receita_media,
+    ROUND(AVG(f.tipAmount), 2) as gorjeta_media
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_payment_type p ON f.payment_type_fk = p.payment_type
+GROUP BY p.payment_type_name
+ORDER BY total_viagens DESC;
+
+-- Análise por tipo de tarifa
+SELECT 
+    r.rate_code_name,
+    COUNT(*) as total_viagens,
+    ROUND(AVG(f.totalAmount), 2) as receita_media
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_rate_code r ON f.rate_code_fk = r.rate_code_id
+GROUP BY r.rate_code_name
+ORDER BY total_viagens DESC;
+```
+
+**🔍 Consulta 5: Análise Completa (Star Schema Join)**
+```sql
+-- Análise completa: Viagens de fim de semana à noite
+SELECT TOP 100
+    d.date,
+    d.day_of_week_name,
+    t.time_24h,
+    t.period_of_day,
+    l_pickup.location_id as location_origem,
+    l_dropoff.location_id as location_destino,
+    v.vendor_name,
+    p.payment_type_name,
+    r.rate_code_name,
+    f.totalAmount,
+    f.tripDistance,
+    f.trip_duration_minutes,
+    f.passengerCount
+FROM dbo_marts.fct_taxi_trip f
+INNER JOIN dbo_marts.dim_date d ON f.pickup_date_fk = d.date
+INNER JOIN dbo_marts.dim_time t ON f.pickup_time_fk = t.time
+INNER JOIN dbo_marts.dim_location l_pickup ON f.pickup_location_fk = l_pickup.sk_location_id
+INNER JOIN dbo_marts.dim_location l_dropoff ON f.dropoff_location_fk = l_dropoff.sk_location_id
+INNER JOIN dbo_marts.dim_vendor v ON f.vendor_fk = v.vendor_id
+INNER JOIN dbo_marts.dim_payment_type p ON f.payment_type_fk = p.payment_type
+INNER JOIN dbo_marts.dim_rate_code r ON f.rate_code_fk = r.rate_code_id
+WHERE d.is_weekend = 1
+  AND t.period_of_day = 'Noite'
+ORDER BY f.totalAmount DESC;
+```
+
+**🔍 Consulta 6: Métricas de Negócio (KPIs)**
+```sql
+-- KPIs principais do negócio de táxi
+SELECT 
+    COUNT(*) as total_viagens,
+    COUNT(DISTINCT pickup_date_fk) as dias_operacionais,
+    ROUND(SUM(totalAmount), 2) as receita_total,
+    ROUND(AVG(totalAmount), 2) as ticket_medio,
+    ROUND(AVG(tripDistance), 2) as distancia_media_milhas,
+    ROUND(AVG(trip_duration_minutes), 2) as duracao_media_minutos,
+    ROUND(AVG(passengerCount), 2) as passageiros_medio,
+    ROUND(AVG(tipAmount), 2) as gorjeta_media,
+    ROUND(SUM(tollsAmount), 2) as pedagios_total
+FROM dbo_marts.fct_taxi_trip;
+```
+
+💡 **Arquitetura Star Schema Completa:**
+```
+                 dim_date
+                     |
+                     |
+    dim_vendor ---- fct_taxi_trip ---- dim_location (pickup)
+                     |                           |
+                     |                           |
+              dim_payment_type            dim_location (dropoff)
+                     |
+                     |
+              dim_rate_code
+                     |
+                     |
+                 dim_time
+```
+
+✅ **Checkpoint:** Data Warehouse dimensional criado! Todas as 6 dimensões estão prontas, validadas e com dados exploráveis. A tabela fato está materializada com ~26M+ viagens e todos os testes de integridade referencial passando.
 
 ---
 
@@ -2134,10 +2689,11 @@ Solução:
 
 **Próximos passos recomendados:**
 
-1. **✅ Criar Tabelas Fato**
-   - `fct_taxi_trips` - Fato de viagens com métricas
-   - Joins com todas as dimensões criadas
-   - Materialização incremental
+1. **✅ Criar Tabelas Fato** (CONCLUÍDO)
+   - ✅ `fct_taxi_trip` - Fato de viagens com métricas
+   - ✅ Joins com todas as dimensões criadas usando surrogate keys
+   - ✅ Separação de camadas intermediate (VIEW) e marts (TABLE)
+   - ⏭️ Próximo: Implementar materialização incremental para performance
 
 2. **📊 Implementar Métricas**
    - Criar métricas reutilizáveis com dbt metrics
@@ -2235,8 +2791,8 @@ Este projeto implementa um **Data Warehouse dimensional completo** seguindo as m
 
 **📊 Arquitetura:**
 - 🥉 **Camada Bronze (Staging)**: 1 source, 1 modelo de ingestão
-- 🥈 **Camada Silver (Intermediate)**: 6 dimensões intermediárias
-- 🥇 **Camada Gold (Marts)**: 6 dimensões finais otimizadas
+- 🥈 **Camada Silver (Intermediate)**: 6 dimensões intermediárias + 1 tabela fato intermediária
+- 🥇 **Camada Gold (Marts)**: 6 dimensões finais + 1 tabela fato otimizada (~26M+ viagens)
 
 **🔧 Infraestrutura:**
 - ☁️ Totalmente integrado com **Microsoft Fabric**
