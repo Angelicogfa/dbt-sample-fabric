@@ -3,11 +3,15 @@
 -- =====================================================
 -- Tabela fato final materializada que referencia a camada
 -- intermediate com todos os relacionamentos já aplicados
+-- Materialização: INCREMENTAL para performance otimizada
 -- =====================================================
 
 {{
     config(
-        materialized='table',
+        materialized='incremental',
+        unique_key='trip_id',
+        on_schema_change='fail',
+        incremental_strategy='merge',
         tags=['fact', 'mart']
     )
 }}
@@ -15,6 +19,10 @@
 WITH int_fact AS (
     SELECT *
     FROM {{ ref('int_fct_taxi_trip') }}
+    {% if is_incremental() %}
+    -- Processa apenas viagens novas (baseado na data de pickup)
+    WHERE lpepPickupDatetime > (SELECT MAX(lpepPickupDatetime) FROM {{ this }})
+    {% endif %}
 )
 
 SELECT
@@ -49,4 +57,3 @@ SELECT
     storeAndFwdFlag
     
 FROM int_fact
-ORDER BY lpepPickupDatetime

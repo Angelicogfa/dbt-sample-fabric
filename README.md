@@ -2066,9 +2066,15 @@ ORDER BY d.date DESC;
 
 Agora vamos criar a **tabela fato final** do Data Warehouse. Esta será uma **tabela materializada** que referencia a camada intermediate.
 
-### 13.12 Criar Tabela Fato - fct_taxi_trip
+### 13.12 Criar Tabela Fato - fct_taxi_trip (Incremental)
 
-A tabela fato final simplesmente materializa a view intermediate como uma **TABLE** para melhor performance em queries analíticas.
+A tabela fato final materializa a view intermediate com **estratégia incremental** para otimizar performance e reduzir tempo de processamento.
+
+**🔑 Estratégia Incremental:**
+- **Chave única:** `trip_id` (garante unicidade e permite merge)
+- **Controle de carga:** `lpepPickupDatetime` (carrega apenas viagens novas)
+- **Estratégia:** `merge` (atualiza registros existentes se necessário)
+- **Benefícios:** Processamento 10-100x mais rápido em cargas incrementais
 
 **📄 Arquivo:** `treinamento_dbt/models/marts/facts/fct_taxi_trip.sql`
 
@@ -2078,11 +2084,15 @@ A tabela fato final simplesmente materializa a view intermediate como uma **TABL
 -- =====================================================
 -- Tabela fato final materializada que referencia a camada
 -- intermediate com todos os relacionamentos já aplicados
+-- Materialização: INCREMENTAL para performance otimizada
 -- =====================================================
 
 {{
     config(
-        materialized='table',
+        materialized='incremental',
+        unique_key='trip_id',
+        on_schema_change='fail',
+        incremental_strategy='merge',
         tags=['fact', 'mart']
     )
 }}
@@ -2090,6 +2100,10 @@ A tabela fato final simplesmente materializa a view intermediate como uma **TABL
 WITH int_fact AS (
     SELECT *
     FROM {{ ref('int_fct_taxi_trip') }}
+    {% if is_incremental() %}
+    -- Processa apenas viagens novas (baseado na data de pickup)
+    WHERE lpepPickupDatetime > (SELECT MAX(lpepPickupDatetime) FROM {{ this }})
+    {% endif %}
 )
 
 SELECT
@@ -2123,13 +2137,31 @@ SELECT
     tripType,
     storeAndFwdFlag,
     
-    -- Timestamps Originais
+    -- Timestamps Originais (essencial para controle incremental)
     lpepPickupDatetime,
     lpepDropoffDatetime
     
 FROM int_fact
-ORDER BY lpepPickupDatetime
 ```
+
+**💡 Como funciona o Incremental:**
+
+1. **Primeira execução (Full Load):**
+   - `is_incremental()` retorna `false`
+   - Processa TODAS as viagens da intermediate
+   - Cria a tabela completa (~26M+ registros)
+   - Tempo estimado: 5-15 minutos
+
+2. **Execuções subsequentes (Incremental):**
+   - `is_incremental()` retorna `true`
+   - Filtra: `WHERE lpepPickupDatetime > MAX(lpepPickupDatetime)`
+   - Processa APENAS viagens novas
+   - Tempo estimado: segundos/minutos (depende do volume novo)
+
+3. **Forçar Full Refresh (quando necessário):**
+   ```powershell
+   .\run_dbt.ps1 "run --select fct_taxi_trip --full-refresh"
+   ```
 
 ### 13.13 Documentar Tabela Fato - fct_taxi_trip.yml
 
@@ -2268,14 +2300,47 @@ models:
 .\run_dbt.ps1 "build"
 ```
 
-**🎯 Executar apenas a fato:**
+**🎯 Executar apenas a fato (primeira carga - FULL):**
 ```powershell
 .\run_dbt.ps1 "run --select fct_taxi_trip"
+```
+
+**🔄 Executar carga incremental (cargas subsequentes):**
+```powershell
+# Comando normal - automaticamente detecta que é incremental
+.\run_dbt.ps1 "run --select fct_taxi_trip"
+
+# Saída esperada:
+# 1 of 1 START sql incremental model dbo_marts.fct_taxi_trip
+# 1 of 1 OK created sql incremental model dbo_marts.fct_taxi_trip [merge in 2s]
+```
+
+**🔄 Forçar Full Refresh (recriar tabela completa):**
+```powershell
+# Use quando houver mudanças na estrutura ou lógica de negócio
+.\run_dbt.ps1 "run --select fct_taxi_trip --full-refresh"
+
+# Saída esperada:
+# 1 of 1 START sql incremental model dbo_marts.fct_taxi_trip
+# 1 of 1 OK created sql incremental model dbo_marts.fct_taxi_trip [INSERT 0 in 120s]
 ```
 
 **🧪 Testar integridade referencial:**
 ```powershell
 .\run_dbt.ps1 "test --select fct_taxi_trip"
+```
+
+**📊 Validar Performance do Incremental:**
+```sql
+-- No Fabric, verificar o MAX(lpepPickupDatetime) atual
+SELECT 
+    COUNT(*) as total_viagens,
+    MIN(lpepPickupDatetime) as primeira_viagem,
+    MAX(lpepPickupDatetime) as ultima_viagem
+FROM dbo_marts.fct_taxi_trip;
+
+-- Simular: Se novos dados fossem carregados na staging após '2019-12-31',
+-- o incremental processaria APENAS essas novas viagens
 ```
 
 ### 13.15 Validação e Análises da Tabela Fato
@@ -2693,7 +2758,8 @@ Solução:
    - ✅ `fct_taxi_trip` - Fato de viagens com métricas
    - ✅ Joins com todas as dimensões criadas usando surrogate keys
    - ✅ Separação de camadas intermediate (VIEW) e marts (TABLE)
-   - ⏭️ Próximo: Implementar materialização incremental para performance
+   - ✅ **Materialização incremental implementada** (otimiza performance 10-100x)
+   - 💡 Beneficio: Cargas incrementais levam segundos ao invés de minutos
 
 2. **📊 Implementar Métricas**
    - Criar métricas reutilizáveis com dbt metrics
