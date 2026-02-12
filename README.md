@@ -80,7 +80,7 @@ python-dotenv==1.2.1
 **Instale as dependências:**
 
 ```bash
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 **Verificar instalação:**
