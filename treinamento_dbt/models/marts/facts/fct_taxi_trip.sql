@@ -10,7 +10,7 @@
     config(
         materialized='incremental',
         unique_key='trip_id',
-        on_schema_change='fail',
+        on_schema_change='sync_all_columns',
         incremental_strategy='merge',
         tags=['fact', 'mart']
     )
@@ -21,7 +21,7 @@ WITH int_fact AS (
     FROM {{ ref('int_fct_taxi_trip') }}
     {% if is_incremental() %}
     -- Processa apenas viagens novas (baseado na data de pickup)
-    WHERE lpepPickupDatetime > (SELECT MAX(lpepPickupDatetime) FROM {{ this }})
+    WHERE pickup_date_fk > (SELECT MAX(pickup_date_fk) FROM {{ this }})
     {% endif %}
 )
 
