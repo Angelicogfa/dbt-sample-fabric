@@ -2086,12 +2086,19 @@ A tabela fato final materializa a view intermediate com **estratégia incrementa
 -- intermediate com todos os relacionamentos já aplicados
 -- Materialização: INCREMENTAL para performance otimizada
 -- =====================================================
+-- =====================================================
+-- Fato: Viagens de Táxi (Taxi Trip) - MART FINAL
+-- =====================================================
+-- Tabela fato final materializada que referencia a camada
+-- intermediate com todos os relacionamentos já aplicados
+-- Materialização: INCREMENTAL para performance otimizada
+-- =====================================================
 
 {{
     config(
         materialized='incremental',
         unique_key='trip_id',
-        on_schema_change='fail',
+        on_schema_change='sync_all_columns',
         incremental_strategy='merge',
         tags=['fact', 'mart']
     )
@@ -2102,7 +2109,7 @@ WITH int_fact AS (
     FROM {{ ref('int_fct_taxi_trip') }}
     {% if is_incremental() %}
     -- Processa apenas viagens novas (baseado na data de pickup)
-    WHERE lpepPickupDatetime > (SELECT MAX(lpepPickupDatetime) FROM {{ this }})
+    WHERE pickup_date_fk > (SELECT MAX(pickup_date_fk) FROM {{ this }})
     {% endif %}
 )
 
@@ -2135,11 +2142,7 @@ SELECT
     -- Atributos Descritivos (Degenerates)
     passengerCount,
     tripType,
-    storeAndFwdFlag,
-    
-    -- Timestamps Originais (essencial para controle incremental)
-    lpepPickupDatetime,
-    lpepDropoffDatetime
+    storeAndFwdFlag
     
 FROM int_fact
 ```
