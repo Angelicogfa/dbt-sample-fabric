@@ -402,18 +402,13 @@ Crie o arquivo `run_dbt.sh` na raiz do projeto:
 # Carrega as variáveis do arquivo .env
 if [ -f .env ]; then
     echo "Carregando variáveis de ambiente de .env..."
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    source .env
+    set +a
     echo ""
 else
     echo "Arquivo .env não encontrado"
     exit 1
-fi
-
-# Ativa o ambiente virtual se existir
-if [ -f .venv/bin/activate ]; then
-    echo "Ativando ambiente virtual..."
-    source .venv/bin/activate
-    echo ""
 fi
 
 # Navega para o diretório do DBT
