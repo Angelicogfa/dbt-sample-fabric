@@ -11,7 +11,7 @@
         materialized='incremental',
         unique_key='trip_id',
         on_schema_change='sync_all_columns',
-        incremental_strategy='merge',
+        incremental_strategy='delete+insert',
         tags=['fact', 'mart']
     )
 }}

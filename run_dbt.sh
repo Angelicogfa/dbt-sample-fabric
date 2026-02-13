@@ -7,7 +7,9 @@
 # Carrega as variáveis do arquivo .env
 if [ -f .env ]; then
     echo "Carregando variáveis de ambiente de .env..."
-    export $(grep -v '^#' .env | xargs)
+    set -a
+    source .env
+    set +a
     echo ""
 else
     echo "Arquivo .env não encontrado"

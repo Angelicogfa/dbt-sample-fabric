@@ -197,4 +197,7 @@ pyrightconfig.json
 .história
 .ionídeo
 
+# Dev Container
+.devcontainer/.env
+
 # Fim de https://www.toptal.com/developers/gitignore/api/python,visualstudiocode,dbt
