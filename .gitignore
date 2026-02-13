@@ -1,0 +1,34 @@
+# DBT
+target/
+dbt_packages/
+logs/
+dbt_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+ENV/
+env/
+
+# Ambiente e Credenciais
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Outros
+*.log

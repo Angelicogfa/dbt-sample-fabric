@@ -1,0 +1,159 @@
+{
+    "name": "DBT + Microsoft Fabric Development",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "..",
+        "args": {
+            "USERNAME": "vscode",
+            "USER_UID": "1000",
+            "USER_GID": "1000"
+        }
+    },
+    
+    // Configurações do VS Code
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                // Python
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.black-formatter",
+                
+                // SQL
+                "mtxr.sqltools",
+                "mtxr.sqltools-driver-mssql",
+                
+                // Git
+                "eamodio.gitlens",
+                
+                // YAML
+                "redhat.vscode-yaml",
+                
+                // Markdown
+                "yzhang.markdown-all-in-one",
+                "DavidAnson.vscode-markdownlint",
+                
+                // DBT
+                "bastienboutonnet.vscode-dbt",
+                "innoverio.vscode-dbt-power-user",
+                
+                // Ferramentas úteis
+                "ms-azuretools.vscode-docker",
+                "ms-vscode.azure-account",
+                "GitHub.copilot",
+                "EditorConfig.EditorConfig",
+                "streetsidesoftware.code-spell-checker"
+            ],
+            
+            "settings": {
+                // Python
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "python.linting.enabled": true,
+                "python.linting.pylintEnabled": false,
+                "python.linting.flake8Enabled": true,
+                "python.formatting.provider": "black",
+                "python.formatting.blackArgs": ["--line-length", "100"],
+                "python.testing.pytestEnabled": true,
+                
+                // Editor
+                "editor.formatOnSave": true,
+                "editor.tabSize": 4,
+                "editor.insertSpaces": true,
+                "editor.rulers": [100],
+                "files.trimTrailingWhitespace": true,
+                "files.insertFinalNewline": true,
+                
+                // Terminal
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "terminal.integrated.fontSize": 13,
+                
+                // Git
+                "git.autofetch": true,
+                "git.confirmSync": false,
+                
+                // Files
+                "files.exclude": {
+                    "**/__pycache__": true,
+                    "**/.pytest_cache": true,
+                    "**/*.pyc": true,
+                    "**/target": true,
+                    "**/dbt_packages": true,
+                    "**/.venv": true
+                },
+                
+                // YAML
+                "yaml.schemas": {
+                    "https://raw.githubusercontent.com/dbt-labs/dbt-jsonschema/main/schemas/dbt_project.json": "dbt_project.yml",
+                    "https://raw.githubusercontent.com/dbt-labs/dbt-jsonschema/main/schemas/dbt_yml_files.json": [
+                        "models/**/*.yml",
+                        "seeds/**/*.yml",
+                        "snapshots/**/*.yml",
+                        "analyses/**/*.yml",
+                        "macros/**/*.yml"
+                    ]
+                },
+                
+                // DBT Power User
+                "dbt.dbtIntegration": true,
+                "dbt.enableNewLineagePanel": true
+            }
+        }
+    },
+    
+    // Features adicionais do Dev Container
+    "features": {
+        "ghcr.io/devcontainers/features/git:1": {
+            "version": "latest"
+        },
+        "ghcr.io/devcontainers/features/github-cli:1": {
+            "version": "latest"
+        }
+    },
+    
+    // Mounts: montar arquivos do host no container
+    // Comentado temporariamente para evitar erros no Windows
+    // Você pode configurar git manualmente dentro do container
+    "mounts": [
+        // Montar credenciais Git (desabilitado - pode causar erro no Windows)
+        // "source=${localEnv:HOME}${localEnv:USERPROFILE}/.gitconfig,target=/home/vscode/.gitconfig,type=bind,consistency=cached",
+        
+        // Montar cache do Azure CLI (desabilitado - pode causar erro no Windows)
+        // "source=${localEnv:HOME}${localEnv:USERPROFILE}/.azure,target=/home/vscode/.azure,type=bind,consistency=cached",
+        
+        // Montar SSH keys (opcional - para Git via SSH)
+        // "source=${localEnv:HOME}${localEnv:USERPROFILE}/.ssh,target=/home/vscode/.ssh,readonly,type=bind,consistency=cached"
+    ],
+    
+    // Portas a serem expostas
+    "forwardPorts": [8080],
+    "portsAttributes": {
+        "8080": {
+            "label": "dbt docs",
+            "onAutoForward": "notify"
+        }
+    },
+    
+    // Comandos pós-criação do container
+    "postCreateCommand": "bash .devcontainer/post-create.sh",
+    
+    // Comandos pós-inicialização
+    "postStartCommand": "git config --global --add safe.directory /workspace",
+    
+    // Variáveis de ambiente
+    "containerEnv": {
+        "PYTHONUNBUFFERED": "1",
+        "PYTHONDONTWRITEBYTECODE": "1"
+    },
+    
+    // Manter o container rodando
+    "overrideCommand": false,
+    
+    // Usuário remoto
+    "remoteUser": "vscode",
+    
+    // Workspace folder no container
+    "workspaceFolder": "/workspace",
+    
+    // Workspace mount
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached"
+}
