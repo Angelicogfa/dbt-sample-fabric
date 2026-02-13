@@ -106,58 +106,62 @@ Durante a inicialização, o dbt fará algumas perguntas:
 
 ```text
 treinamento-dbt/
-├── .venv/                                      # Ambiente virtual Python
-├── .env                                        # Variáveis de ambiente (NÃO versionar)
-├── .gitignore                                  # Arquivos ignorados pelo Git
-├── requirements.txt                            # Dependências Python
-├── run_dbt.ps1                                 # Script PowerShell para executar DBT
-├── run_dbt.sh                                  # Script Bash para executar DBT
-└── treinamento_dbt/                            # Pasta do projeto DBT
-    ├── dbt_project.yml                         # Configuração do projeto
-    ├── profiles.yml                            # Configuração de conexões
-    ├── README.md                               # Documentação do projeto dbt
-    ├── models/                                 # Modelos SQL
-    │   ├── staging/                            # 🥉 Camada Bronze - Ingestão
+├── .venv/
+├── .env
+├── .env.sample
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── run_dbt.ps1
+├── run_dbt.sh
+└── treinamento_dbt/
+    ├── .gitignore
+    ├── .user.yml
+    ├── dbt_project.yml
+    ├── profiles.yml
+    ├── README.md
+    ├── analyses/
+    ├── logs/
+    ├── macros/
+    ├── models/
+    │   ├── staging/
     │   │   └── lakehouse/
-    │   │       ├── _lakehouse_sources.yml      # Definição da fonte de dados
-    │   │       └── stg_lakehouse__taxi.sql     # Modelo staging de táxis
-    │   ├── intermediate/                       # 🥈 Camada Silver - Transformação
+    │   │       ├── _lakehouse_sources.yml
+    │   │       └── stg_lakehouse__taxi.sql
+    │   ├── intermediate/
     │   │   └── lakehouse/
-    │   │       ├── int_dim_date.sql            # Dimensão data intermediária
-    │   │       ├── int_dim_location.sql        # Dimensão localização intermediária
-    │   │       ├── int_dim_payment_type.sql    # Dimensão tipo pagamento intermediária
-    │   │       ├── int_dim_rate_code.sql       # Dimensão código tarifa intermediária
-    │   │       ├── int_dim_time.sql            # Dimensão tempo intermediária
-    │   │       ├── int_dim_vendor.sql          # Dimensão fornecedor intermediária
-    │   │       └── int_fct_taxi_trip.sql       # Fato viagem táxi intermediária
-    │   └── marts/                              # 🥇 Camada Gold - Consumo
-    │       ├── dimensions/                     # Dimensões finais
-    │       │   ├── dim_date.sql                # Dimensão data
-    │       │   ├── dim_date.yml                # Documentação e testes dim_date
-    │       │   ├── dim_location.sql            # Dimensão localização
-    │       │   ├── dim_location.yml            # Documentação e testes dim_location
-    │       │   ├── dim_payment_type.sql        # Dimensão tipo pagamento
-    │       │   ├── dim_payment_type.yml        # Documentação e testes dim_payment_type
-    │       │   ├── dim_rate_code.sql           # Dimensão código tarifa
-    │       │   ├── dim_rate_code.yml           # Documentação e testes dim_rate_code
-    │       │   ├── dim_time.sql                # Dimensão tempo
-    │       │   ├── dim_time.yml                # Documentação e testes dim_time
-    │       │   ├── dim_vendor.sql              # Dimensão fornecedor
-    │       │   └── dim_vendor.yml              # Documentação e testes dim_vendor
-    │       └── facts/                          # Tabelas fato finais
-    │           ├── fct_taxi_trip.sql           # Fato viagem táxi
-    │           └── fct_taxi_trip.yml           # Documentação e testes fct_taxi_trip
-    ├── tests/                                  # Testes customizados
-    ├── macros/                                 # Macros Jinja
-    ├── seeds/                                  # Arquivos CSV para carga
-    ├── snapshots/                              # Snapshots de dados
-    ├── analyses/                               # Análises ad-hoc
-    ├── logs/                                   # Logs de execução
-    └── target/                                 # Arquivos compilados (NÃO versionar)
-        ├── manifest.json                       # Manifesto do projeto
-        ├── run_results.json                    # Resultados das execuções
-        ├── compiled/                           # SQL compilado
-        └── run/                                # SQL executado
+    │   │       ├── int_dim_date.sql
+    │   │       ├── int_dim_location.sql
+    │   │       ├── int_dim_payment_type.sql
+    │   │       ├── int_dim_rate_code.sql
+    │   │       ├── int_dim_time.sql
+    │   │       ├── int_dim_vendor.sql
+    │   │       └── int_fct_taxi_trip.sql
+    │   └── marts/
+    │       ├── dimensions/
+    │       │   ├── dim_date.sql
+    │       │   ├── dim_date.yml
+    │       │   ├── dim_location.sql
+    │       │   ├── dim_location.yml
+    │       │   ├── dim_payment_type.sql
+    │       │   ├── dim_payment_type.yml
+    │       │   ├── dim_rate_code.sql
+    │       │   ├── dim_rate_code.yml
+    │       │   ├── dim_time.sql
+    │       │   ├── dim_time.yml
+    │       │   ├── dim_vendor.sql
+    │       │   └── dim_vendor.yml
+    │       └── facts/
+    │           ├── fct_taxi_trip.sql
+    │           └── fct_taxi_trip.yml
+    ├── seeds/
+    ├── snapshots/
+    ├── tests/
+    └── target/
+        ├── manifest.json
+        ├── run_results.json
+        ├── compiled/
+        └── run/
 ```
 
 ---
